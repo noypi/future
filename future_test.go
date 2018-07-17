@@ -31,7 +31,7 @@ func TestFuture_x01(t *testing.T) {
 
 	})
 
-	exec()
+	exec(false)
 
 	assert.Equal(2, len(results))
 	assert.Equal("message 1", results[0])

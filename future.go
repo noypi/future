@@ -16,7 +16,7 @@ func defaultRejected() {}
 
 var vDefaultRejectedFn = reflect.ValueOf(defaultRejected)
 
-func Future(fn interface{}) (exec func(), q *Promise) {
+func Future(fn interface{}) (exec func(bAsync bool), q *Promise) {
 	t := reflect.TypeOf(fn)
 
 	bValid := (t.Kind() == reflect.Func) &&
@@ -32,9 +32,13 @@ func Future(fn interface{}) (exec func(), q *Promise) {
 
 	v := reflect.ValueOf(fn)
 
-	return func() {
-		//TODO make async
-		v.Call([]reflect.Value{q.vFulfilledFn, q.vRejectedFn})
+	return func(bAsync bool) {
+		if bAsync {
+			go v.Call([]reflect.Value{q.vFulfilledFn, q.vRejectedFn})
+		} else {
+			v.Call([]reflect.Value{q.vFulfilledFn, q.vRejectedFn})
+		}
+
 	}, q
 }
 
