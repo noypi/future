@@ -3,6 +3,7 @@ package future
 
 import (
 	"reflect"
+	"sync"
 )
 
 type Promise struct {
@@ -10,6 +11,8 @@ type Promise struct {
 	tRejectedFn  reflect.Type
 	vFulfilledFn reflect.Value
 	vRejectedFn  reflect.Value
+
+	wg sync.WaitGroup
 }
 
 func defaultRejected() {}
@@ -34,10 +37,16 @@ func Future(fn interface{}) (exec func(bAsync bool), q *Promise) {
 
 	return func(bAsync bool) {
 		if bAsync {
-			go v.Call([]reflect.Value{q.vFulfilledFn, q.vRejectedFn})
+			q.wg.Add(1)
+			go func() {
+				v.Call([]reflect.Value{q.vFulfilledFn, q.vRejectedFn})
+				q.wg.Done()
+			}()
 		} else {
 			v.Call([]reflect.Value{q.vFulfilledFn, q.vRejectedFn})
 		}
+
+		return
 
 	}, q
 }
@@ -94,6 +103,10 @@ func (this *Promise) Then(fulfilledFn, rejectedFn interface{}) (q *Promise) {
 	return this
 }
 
+func (this Promise) Wait() {
+	this.wg.Wait()
+}
+
 func getFuncTypeIns(t reflect.Type) (ts []reflect.Type) {
 	for i := 0; i < t.NumIn(); i++ {
 		ts = append(ts, t.In(i))
@@ -106,4 +119,10 @@ func getFuncTypeOuts(t reflect.Type) (ts []reflect.Type) {
 		ts = append(ts, t.Out(i))
 	}
 	return
+}
+
+// returns first promise to finish or rejected
+func Race(qs ...Promise) (q *Promise) {
+	panic("not yet implemented")
+	return nil
 }
