@@ -122,7 +122,33 @@ func getFuncTypeOuts(t reflect.Type) (ts []reflect.Type) {
 }
 
 // returns first promise to finish or rejected
-func Race(qs ...Promise) (q *Promise) {
-	panic("not yet implemented")
-	return nil
+func Race(qs ...*Promise) (q *Promise) {
+	var l sync.Mutex
+	var bDone bool
+	ch := make(chan *Promise)
+
+	for _, q0 := range qs {
+		func(q1 *Promise) {
+			q1.Then(func() {
+				l.Lock()
+				if !bDone {
+					bDone = true
+					ch <- q1
+				}
+				l.Unlock()
+			}, func() {
+				l.Lock()
+				if !bDone {
+					bDone = true
+					ch <- q1
+				}
+				l.Unlock()
+			})
+		}(q0)
+	}
+
+	q = <-ch
+	close(ch)
+
+	return
 }
