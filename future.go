@@ -7,17 +7,22 @@ import (
 )
 
 type Promise struct {
-	tFulfilledFn reflect.Type
-	tRejectedFn  reflect.Type
-	vFulfilledFn reflect.Value
-	vRejectedFn  reflect.Value
-
 	wg sync.WaitGroup
+
+	tResolvedWrapper reflect.Type
+	vResolvedWrapper reflect.Value
+
+	tRejectedWrapper reflect.Type
+	vRejectedWrapper reflect.Value
+
+	resolvedFuncs []fnInfoType
+	rejectedFuncs []fnInfoType
 }
 
-func defaultRejected() {}
-
-var vDefaultRejectedFn = reflect.ValueOf(defaultRejected)
+type fnInfoType struct {
+	v reflect.Value
+	t reflect.Type
+}
 
 func Future(fn interface{}) (exec func(bAsync bool), q *Promise) {
 	t := reflect.TypeOf(fn)
@@ -39,11 +44,11 @@ func Future(fn interface{}) (exec func(bAsync bool), q *Promise) {
 		if bAsync {
 			q.wg.Add(1)
 			go func() {
-				v.Call([]reflect.Value{q.vFulfilledFn, q.vRejectedFn})
+				v.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
 				q.wg.Done()
 			}()
 		} else {
-			v.Call([]reflect.Value{q.vFulfilledFn, q.vRejectedFn})
+			v.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
 		}
 
 		return
@@ -51,54 +56,93 @@ func Future(fn interface{}) (exec func(bAsync bool), q *Promise) {
 	}, q
 }
 
-func (this *Promise) Then(fulfilledFn, rejectedFn interface{}) (q *Promise) {
-	t1 := reflect.TypeOf(fulfilledFn)
-	if nil == rejectedFn {
-		rejectedFn = defaultRejected
+func (this *Promise) initResolvedIfNeeded(tResolved reflect.Type) {
+	if nil == this.tResolvedWrapper {
+		this.tResolvedWrapper = tResolved
+		this.vResolvedWrapper = createVFuncWrapper(tResolved, this.resolvedWrapped)
+	}
+}
+
+func (this *Promise) initRejectedIfNeeded(tRejected reflect.Type) {
+	if nil == this.tRejectedWrapper {
+		this.tRejectedWrapper = tRejected
+		this.vRejectedWrapper = createVFuncWrapper(tRejected, this.rejectedWrapped)
+	}
+}
+
+func (this *Promise) resolvedWrapped(args []reflect.Value) (results []reflect.Value) {
+	return wrappedFunc(this.tResolvedWrapper, args, this.resolvedFuncs)
+}
+
+func (this *Promise) rejectedWrapped(args []reflect.Value) (results []reflect.Value) {
+	return wrappedFunc(this.tRejectedWrapper, args, this.rejectedFuncs)
+}
+
+func wrappedFunc(tFn reflect.Type, args []reflect.Value, funcInfos []fnInfoType) (results []reflect.Value) {
+	var res0 []reflect.Value
+	for i, fnInfo := range funcInfos {
+		args0 := res0
+		if 0 == i {
+			args0 = args
+		}
+		t := fnInfo.t
+		res0 = make([]reflect.Value, t.NumIn())
+		fitFnArgs(t, res0, args0)
+		res0 = fnInfo.v.Call(args0)
 	}
 
-	t2 := reflect.TypeOf(rejectedFn)
-	bValid := (t1.Kind() == reflect.Func) &&
-		(t2.Kind() == reflect.Func)
-	if !bValid {
-		panic("fulfilledFn and rejectedFn should be functions")
+	results = make([]reflect.Value, tFn.NumOut())
+	fitFnArgs(tFn, results, res0)
+
+	return results
+}
+
+func createVFuncWrapper(tFn reflect.Type, vWrappedFn func(args []reflect.Value) (results []reflect.Value)) (vFn reflect.Value) {
+	newF1t := reflect.FuncOf(
+		getFuncTypeIns(tFn),
+		getFuncTypeOuts(tFn),
+		tFn.IsVariadic(),
+	)
+
+	return reflect.MakeFunc(newF1t, vWrappedFn)
+}
+
+func fitFnArgs(tFn reflect.Type, toLenArr, fromArr []reflect.Value) {
+	for i := 0; i < len(toLenArr); i++ {
+		if i < len(fromArr) {
+			toLenArr[i] = fromArr[i]
+		} else {
+			toLenArr[i] = reflect.New(tFn.In(i)).Elem()
+		}
 	}
+}
+
+func (this *Promise) Then(fulfilledFn, rejectedFn interface{}) (q *Promise) {
+	t1 := reflect.TypeOf(fulfilledFn)
+	t2 := reflect.TypeOf(rejectedFn)
 
 	v1 := reflect.ValueOf(fulfilledFn)
 	v2 := reflect.ValueOf(rejectedFn)
 
-	if this.vFulfilledFn.IsValid() {
-		newF1t := reflect.FuncOf(
-			getFuncTypeIns(this.tFulfilledFn),
-			getFuncTypeOuts(this.tFulfilledFn),
-			false,
-		)
-
-		oldF1v := this.vFulfilledFn
-		this.vFulfilledFn = reflect.MakeFunc(newF1t, func(args []reflect.Value) (results []reflect.Value) {
-			return v1.Call(oldF1v.Call(args))
-		})
-	} else {
-		this.vFulfilledFn = v1
+	bValid := ((t1.Kind() == reflect.Func) || (t1.Kind() == reflect.Ptr) && v1.IsNil()) &&
+		((t2.Kind() == reflect.Func) || ((t2.Kind() == reflect.Ptr) && v2.IsNil()))
+	if !bValid {
+		panic("fulfilledFn and rejectedFn should be functions")
 	}
-	this.tFulfilledFn = t1
 
-	if this.vRejectedFn.IsValid() {
-		newF2t := reflect.FuncOf(
-			getFuncTypeIns(this.tRejectedFn),
-			getFuncTypeOuts(this.tRejectedFn),
-			false,
-		)
-
-		oldF2v := this.vRejectedFn
-		this.vRejectedFn = reflect.MakeFunc(newF2t, func(args []reflect.Value) (results []reflect.Value) {
-			return v2.Call(oldF2v.Call(args))
+	if !v1.IsNil() {
+		this.initResolvedIfNeeded(t1)
+		this.resolvedFuncs = append(this.resolvedFuncs, fnInfoType{
+			v: v1, t: t1,
 		})
-
-	} else {
-		this.vRejectedFn = v2
 	}
-	this.tRejectedFn = t2
+
+	if !v2.IsNil() {
+		this.initRejectedIfNeeded(t2)
+		this.rejectedFuncs = append(this.rejectedFuncs, fnInfoType{
+			v: v2, t: t2,
+		})
+	}
 
 	return this
 }
@@ -127,28 +171,31 @@ func Race(qs ...*Promise) (q *Promise) {
 	var bDone bool
 	ch := make(chan *Promise)
 
+	fn := func(q1 *Promise) {
+		q1.Then(func() {
+			l.Lock()
+			if !bDone {
+				bDone = true
+				ch <- q1
+			}
+			l.Unlock()
+		}, func() {
+			l.Lock()
+			if !bDone {
+				bDone = true
+				ch <- q1
+			}
+			l.Unlock()
+		})
+	}
+
 	for _, q0 := range qs {
-		func(q1 *Promise) {
-			q1.Then(func() {
-				l.Lock()
-				if !bDone {
-					bDone = true
-					ch <- q1
-				}
-				l.Unlock()
-			}, func() {
-				l.Lock()
-				if !bDone {
-					bDone = true
-					ch <- q1
-				}
-				l.Unlock()
-			})
-		}(q0)
+		fn(q0)
 	}
 
 	q = <-ch
 	close(ch)
+	q.Wait()
 
 	return
 }
