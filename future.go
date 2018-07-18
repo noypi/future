@@ -93,12 +93,12 @@ func wrappedFunc(tFn reflect.Type, args []reflect.Value, funcInfos []fnInfoType)
 		}
 		t := fnInfo.t
 		res0 = make([]reflect.Value, t.NumIn())
-		fitFnArgs(t, res0, args0)
+		fitFnArgs(t, t.In, res0, args0)
 		res0 = fnInfo.v.Call(args0)
 	}
 
 	results = make([]reflect.Value, tFn.NumOut())
-	fitFnArgs(tFn, results, res0)
+	fitFnArgs(tFn, tFn.Out, results, res0)
 
 	return results
 }
@@ -113,12 +113,17 @@ func createVFuncWrapper(tFn reflect.Type, vWrappedFn func(args []reflect.Value) 
 	return reflect.MakeFunc(newF1t, vWrappedFn)
 }
 
-func fitFnArgs(tFn reflect.Type, toLenArr, fromArr []reflect.Value) {
+func fitFnArgs(tFn reflect.Type, dirFn func(int) reflect.Type, toLenArr, fromArr []reflect.Value) {
 	for i := 0; i < len(toLenArr); i++ {
+		tparam := dirFn(i)
 		if i < len(fromArr) {
-			toLenArr[i] = fromArr[i]
+			if tparam == fromArr[i].Type() {
+				toLenArr[i] = fromArr[i]
+			} else {
+				toLenArr[i] = reflect.New(tparam).Elem()
+			}
 		} else {
-			toLenArr[i] = reflect.New(tFn.In(i)).Elem()
+			toLenArr[i] = reflect.New(tparam).Elem()
 		}
 	}
 }
