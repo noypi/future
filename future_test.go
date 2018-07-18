@@ -11,9 +11,12 @@ import (
 func TestFuture_x01(t *testing.T) {
 	assert := assertpkg.New(t)
 
-	exec, q := FutureDeferred(func(resolve func(string) string, rejected func(interface{})) {
-		resolve("message 1")
-	})
+	exec, q :=
+		FutureDeferred(func(
+			resolve func(string) string,
+			rejected func(interface{})) {
+			resolve("message 1")
+		})
 
 	var results []string
 
