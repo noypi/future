@@ -1,6 +1,17 @@
 Try to run BenchmarkFuture()
 
-todo: then(funcA).then(funcA2).catch(funcB).finally(???)
+# Goal
+
+- func Future( anyfunc(resolvfunc, rejectfunc) ) (*Promise)
+- func FutureDeferred( anyfunc(resolvfunc, rejectfunc) ) (exec func(bAsync bool), *Promise)
+- Promise.Then(resolvedfunc, rejectedfunc) (*Promise)
+- Promise.OnSuccess(resolvedfunc) (*Promise)
+- Promise.OnError(rejectedfunc) (*Promise)
+- Promise.Wait() 
+- Promise.SetCatch( recoverfn func(...interface{}) )
+- Promise.SetFinally( func(state, ...interface{}) )  // state: {resolved, rejected, recovered}
+- func Race(...*Promise) (*Promise)
+
 
 # Example
 ```go
