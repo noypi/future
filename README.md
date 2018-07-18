@@ -12,6 +12,8 @@ Try to run BenchmarkFuture()
 - Promise.SetFinally( func(state, ...interface{}) )  // state: {resolved, rejected, recovered}
 - func Race(...*Promise) (*Promise)
 
+:: resolvedfunc and rejectedfunc can have any function signature
+
 
 # Example
 ```go
