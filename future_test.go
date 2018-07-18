@@ -11,7 +11,7 @@ import (
 func TestFuture_x01(t *testing.T) {
 	assert := assertpkg.New(t)
 
-	exec, q := Future(func(resolve func(string) string, rejected func(interface{})) {
+	exec, q := FutureDeferred(func(resolve func(string) string, rejected func(interface{})) {
 		resolve("message 1")
 	})
 
@@ -36,4 +36,19 @@ func TestFuture_x01(t *testing.T) {
 	assert.Equal(2, len(results))
 	assert.Equal("message 1", results[0])
 	assert.Equal("message 2", results[1])
+}
+
+func BenchmarkFuture(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		exec, q := FutureDeferred(func(resolve func(string) string, rejected func(interface{})) {
+			resolve("message 1")
+		})
+
+		q.Then(func(msg string) string {
+			return "message 2"
+		}, func(fail interface{}) {
+		})
+
+		exec(false)
+	}
 }

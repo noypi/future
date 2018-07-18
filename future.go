@@ -24,7 +24,13 @@ type fnInfoType struct {
 	t reflect.Type
 }
 
-func Future(fn interface{}) (exec func(bAsync bool), q *Promise) {
+func Future(fn interface{}) (q *Promise) {
+	exec, q := FutureDeferred(fn)
+	exec(true)
+	return q
+}
+
+func FutureDeferred(fn interface{}) (exec func(bAsync bool), q *Promise) {
 	t := reflect.TypeOf(fn)
 
 	bValid := (t.Kind() == reflect.Func) &&
