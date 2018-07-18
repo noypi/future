@@ -1,5 +1,7 @@
 Try to run BenchmarkFuture()
 
+todo: then(funcA).then(funcA2).catch(funcB).finally(???)
+
 # Example
 ```go
 
