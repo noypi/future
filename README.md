@@ -1,3 +1,5 @@
+Try to run BenchmarkFuture()
+
 # Example
 ```go
 
