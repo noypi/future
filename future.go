@@ -92,9 +92,9 @@ func wrappedFunc(tFn reflect.Type, args []reflect.Value, funcInfos []fnInfoType)
 			args0 = args
 		}
 		t := fnInfo.t
-		res0 = make([]reflect.Value, t.NumIn())
-		fitFnArgs(t, t.In, res0, args0)
-		res0 = fnInfo.v.Call(args0)
+		argsFit := make([]reflect.Value, t.NumIn())
+		fitFnArgs(t, t.In, argsFit, args0)
+		res0 = fnInfo.v.Call(argsFit)
 	}
 
 	results = make([]reflect.Value, tFn.NumOut())

@@ -1,12 +1,9 @@
-# Under Construction
-
-
 # Example
 ```go
 
 	exec, q :=
 		FutureDeferred(func(
-			resolve func(string) string,
+			resolve func(string, SomeAction) string,
 			rejected func(interface{})) {
 
 			resolve("message 1", SomeAction{})
