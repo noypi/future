@@ -183,21 +183,15 @@ func Race(qs ...*Promise) (q *Promise) {
 	ch := make(chan *Promise)
 
 	fn := func(q1 *Promise) {
-		q1.Then(func() {
+		fncb := func() {
 			l.Lock()
 			if !bDone {
 				bDone = true
 				ch <- q1
 			}
 			l.Unlock()
-		}, func() {
-			l.Lock()
-			if !bDone {
-				bDone = true
-				ch <- q1
-			}
-			l.Unlock()
-		})
+		}
+		q1.Then(fncb, fncb)
 	}
 
 	for _, q0 := range qs {

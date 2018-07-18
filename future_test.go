@@ -144,6 +144,7 @@ func TestFuture_rejectedFuncSignatures(t *testing.T) {
 }
 
 func BenchmarkFuture(b *testing.B) {
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		exec, q := FutureDeferred(func(resolve func(string) string, rejected func(interface{})) {
 			resolve("message 1")
