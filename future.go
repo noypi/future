@@ -2,8 +2,12 @@
 package future
 
 import (
+	"fmt"
+	"log"
 	"reflect"
 	"sync"
+
+	"github.com/pkg/errors"
 )
 
 type Promise struct {
@@ -23,7 +27,7 @@ type Promise struct {
 
 	state   FinalState
 	results []reflect.Value
-	catch   func(interface{})
+	catch   func(err error, o interface{})
 	finally func(FinalState, ...interface{})
 }
 
@@ -43,7 +47,9 @@ func Future(fn interface{}) (q *Promise) {
 }
 
 var defaultFinally = func(FinalState, ...interface{}) {}
-var defaultCatch = func(interface{}) {}
+var defaultCatch = func(err error, o interface{}) {
+	log.Println(fmt.Sprintf("%+v", err), " => ", o)
+}
 
 func FutureDeferred(fn interface{}) (exec func(bAsync bool), q *Promise) {
 	t := reflect.TypeOf(fn)
@@ -83,7 +89,8 @@ func (q *Promise) exec(bAsync bool) {
 		o := recover()
 		if nil != o {
 			q.state = FinalRecovered
-			q.catch(o)
+			err := errors.WithStack(errors.New("Promise Recovered"))
+			q.catch(err, o)
 		}
 
 		q.finally(q.state, vsToInterface(q.results)...)
@@ -119,7 +126,7 @@ func (this *Promise) OnError(fulfilledFn interface{}) (q *Promise) {
 	return this
 }
 
-func (this *Promise) SetCatch(recoverFn func(interface{})) {
+func (this *Promise) SetCatch(recoverFn func(error, interface{})) {
 	this.catch = recoverFn
 }
 
