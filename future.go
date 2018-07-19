@@ -78,7 +78,7 @@ func FutureDeferred(fn interface{}) (exec func(bAsync bool), q *Promise) {
 func (this *Promise) Then(fulfilledFn, rejectedFn interface{}) (q *Promise) {
 
 	this.OnSuccess(fulfilledFn)
-	this.OnError(rejectedFn)
+	this.OnFail(rejectedFn)
 
 	return this
 }
@@ -116,7 +116,7 @@ func (this *Promise) OnSuccess(fulfilledFn interface{}) (q *Promise) {
 	return this
 }
 
-func (this *Promise) OnError(fulfilledFn interface{}) (q *Promise) {
+func (this *Promise) OnFail(fulfilledFn interface{}) (q *Promise) {
 	arr, tFn, _, bAdded := fnInfoTypeArr(this.rejectedFuncs).Append(fulfilledFn)
 	if bAdded {
 		this.initRejectedIfNeeded(tFn)

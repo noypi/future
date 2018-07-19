@@ -8,7 +8,7 @@ Try to run BenchmarkFuture()
 - Promise
 	- Then(resolvedfunc, rejectedfunc) (*Promise)
 	- OnSuccess(resolvedfunc) (*Promise)
-	- OnError(rejectedfunc) (*Promise)
+	- OnFail(rejectedfunc) (*Promise)
 	- Wait() 
 	- SetCatch( recoverfn func(...interface{}) )
 	- SetFinally( func(state, ...interface{}) )  // state: {resolved, rejected, recovered}
