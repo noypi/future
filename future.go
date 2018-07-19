@@ -107,7 +107,15 @@ func (q *Promise) exec(bAsync bool) {
 
 }
 
-func (this *Promise) OnSuccess(fulfilledFn interface{}) (q *Promise) {
+func (this *Promise) OnSuccess(fulfilledFns ...interface{}) (q *Promise) {
+	for _, fn := range fulfilledFns {
+		this.onsuccess(fn)
+	}
+
+	return this
+}
+
+func (this *Promise) onsuccess(fulfilledFn interface{}) (q *Promise) {
 	arr, tFn, _, bAdded := fnInfoTypeArr(this.resolvedFuncs).Append(fulfilledFn)
 	if bAdded {
 		this.initResolvedIfNeeded(tFn)
@@ -116,8 +124,15 @@ func (this *Promise) OnSuccess(fulfilledFn interface{}) (q *Promise) {
 	return this
 }
 
-func (this *Promise) OnFail(fulfilledFn interface{}) (q *Promise) {
-	arr, tFn, _, bAdded := fnInfoTypeArr(this.rejectedFuncs).Append(fulfilledFn)
+func (this *Promise) OnFail(rejectedFns ...interface{}) (q *Promise) {
+	for _, fn := range rejectedFns {
+		this.onfail(fn)
+	}
+	return this
+}
+
+func (this *Promise) onfail(rejectedFn interface{}) (q *Promise) {
+	arr, tFn, _, bAdded := fnInfoTypeArr(this.rejectedFuncs).Append(rejectedFn)
 	if bAdded {
 		this.initRejectedIfNeeded(tFn)
 		this.rejectedFuncs = arr
