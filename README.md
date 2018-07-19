@@ -1,23 +1,23 @@
 Try to run BenchmarkFuture()
 
-# Goal
+# Content
 
 - func Future( anyfunc(resolvfunc, rejectfunc) ) (*Promise)
 - func FutureDeferred( anyfunc(resolvfunc, rejectfunc) ) (exec func(bAsync bool), *Promise)
-- Promise.Then(resolvedfunc, rejectedfunc) (*Promise)
-- Promise.OnSuccess(resolvedfunc) (*Promise)
-- Promise.OnError(rejectedfunc) (*Promise)
-- Promise.Wait() 
-- Promise.SetCatch( recoverfn func(...interface{}) )
-- Promise.SetFinally( func(state, ...interface{}) )  // state: {resolved, rejected, recovered}
 - func Race(...*Promise) (*Promise)
+- Promise
+	- Then(resolvedfunc, rejectedfunc) (*Promise)
+	- OnSuccess(resolvedfunc) (*Promise)
+	- OnError(rejectedfunc) (*Promise)
+	- Wait() 
+	- SetCatch( recoverfn func(...interface{}) )
+	- SetFinally( func(state, ...interface{}) )  // state: {resolved, rejected, recovered}
 
 :: resolvedfunc and rejectedfunc can have any function signature
 
 
 # Example
 ```go
-
 	exec, q :=
 		FutureDeferred(func(
 			resolve func(string, SomeAction) string,

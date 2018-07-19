@@ -15,20 +15,35 @@ type Promise struct {
 	tRejectedWrapper reflect.Type
 	vRejectedWrapper reflect.Value
 
-	resolvedFuncs []fnInfoType
-	rejectedFuncs []fnInfoType
+	tFn reflect.Type
+	vFn reflect.Value
+
+	resolvedFuncs []*fnInfoType
+	rejectedFuncs []*fnInfoType
+
+	state   FinalState
+	results []reflect.Value
+	catch   func(interface{})
+	finally func(FinalState, ...interface{})
 }
 
-type fnInfoType struct {
-	v reflect.Value
-	t reflect.Type
-}
+type FinalState int
+
+const (
+	Unknown FinalState = iota
+	Resolved
+	Rejected
+	Recovered
+)
 
 func Future(fn interface{}) (q *Promise) {
 	exec, q := FutureDeferred(fn)
 	exec(true)
 	return q
 }
+
+var defaultFinally = func(FinalState, ...interface{}) {}
+var defaultCatch = func(interface{}) {}
 
 func FutureDeferred(fn interface{}) (exec func(bAsync bool), q *Promise) {
 	t := reflect.TypeOf(fn)
@@ -43,23 +58,131 @@ func FutureDeferred(fn interface{}) (exec func(bAsync bool), q *Promise) {
 	}
 
 	q = &Promise{}
+	q.state = Unknown
+	q.finally = defaultFinally
+	q.catch = defaultCatch
 
 	v := reflect.ValueOf(fn)
+	q.tFn = t
+	q.vFn = v
 
-	return func(bAsync bool) {
-		if bAsync {
-			q.wg.Add(1)
-			go func() {
-				v.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
-				q.wg.Done()
-			}()
-		} else {
-			v.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
+	return q.exec, q
+}
+
+func (this *Promise) Then(fulfilledFn, rejectedFn interface{}) (q *Promise) {
+
+	this.OnSuccess(fulfilledFn)
+	this.OnError(rejectedFn)
+
+	return this
+}
+
+func (q *Promise) exec(bAsync bool) {
+
+	defer func() {
+		o := recover()
+		if nil != o {
+			q.state = Recovered
+			q.catch(o)
 		}
 
-		return
+		q.finally(q.state, vsToInterface(q.results)...)
+	}()
+	if bAsync {
+		q.wg.Add(1)
+		go func() {
+			q.vFn.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
+			q.wg.Done()
+		}()
+	} else {
+		q.vFn.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
+	}
 
-	}, q
+}
+
+func (this *Promise) OnSuccess(fulfilledFn interface{}) (q *Promise) {
+	arr, tFn, _, bAdded := fnInfoTypeArr(this.resolvedFuncs).Append(fulfilledFn)
+	if bAdded {
+		this.initResolvedIfNeeded(tFn)
+		this.resolvedFuncs = arr
+	}
+	return this
+}
+
+func (this *Promise) OnError(fulfilledFn interface{}) (q *Promise) {
+	arr, tFn, _, bAdded := fnInfoTypeArr(this.rejectedFuncs).Append(fulfilledFn)
+	if bAdded {
+		this.initRejectedIfNeeded(tFn)
+		this.rejectedFuncs = arr
+	}
+
+	return this
+}
+
+func (this *Promise) SetCatch(recoverFn func(interface{})) {
+	this.catch = recoverFn
+}
+
+func (this *Promise) SetFinally(finallyFn func(FinalState, ...interface{})) {
+	this.finally = finallyFn
+}
+
+func (this Promise) Wait() {
+	this.wg.Wait()
+}
+
+// returns first promise to finish or rejected
+func Race(qs ...*Promise) (q *Promise) {
+	var l sync.Mutex
+	var bDone bool
+	ch := make(chan *Promise)
+
+	fn := func(q1 *Promise) {
+		fncb := func() {
+			l.Lock()
+			if !bDone {
+				bDone = true
+				ch <- q1
+			}
+			l.Unlock()
+		}
+		q1.Then(fncb, fncb)
+	}
+
+	for _, q0 := range qs {
+		fn(q0)
+	}
+
+	q = <-ch
+	close(ch)
+	q.Wait()
+
+	return
+}
+
+type fnInfoType struct {
+	v reflect.Value
+	t reflect.Type
+}
+
+type fnInfoTypeArr []*fnInfoType
+
+func (this fnInfoTypeArr) Append(fulfilledFn interface{}) (arr fnInfoTypeArr, tFn reflect.Type, vFn reflect.Value, bAdded bool) {
+	tFn = reflect.TypeOf(fulfilledFn)
+	vFn = reflect.ValueOf(fulfilledFn)
+
+	bValid := ((tFn.Kind() == reflect.Func) || (tFn.Kind() == reflect.Ptr) && vFn.IsNil())
+
+	if !bValid {
+		panic("param should be a function")
+	}
+
+	if !vFn.IsNil() {
+		bAdded = true
+		arr = append(this, &fnInfoType{v: vFn, t: tFn})
+	}
+
+	return
 }
 
 func (this *Promise) initResolvedIfNeeded(tResolved reflect.Type) {
@@ -77,14 +200,20 @@ func (this *Promise) initRejectedIfNeeded(tRejected reflect.Type) {
 }
 
 func (this *Promise) resolvedWrapped(args []reflect.Value) (results []reflect.Value) {
-	return wrappedFunc(this.tResolvedWrapper, args, this.resolvedFuncs)
+	this.state = Resolved
+	results = wrappedFunc(this.tResolvedWrapper, args, this.resolvedFuncs)
+	this.results = results
+	return
 }
 
 func (this *Promise) rejectedWrapped(args []reflect.Value) (results []reflect.Value) {
-	return wrappedFunc(this.tRejectedWrapper, args, this.rejectedFuncs)
+	this.state = Rejected
+	results = wrappedFunc(this.tRejectedWrapper, args, this.rejectedFuncs)
+	this.results = results
+	return
 }
 
-func wrappedFunc(tFn reflect.Type, args []reflect.Value, funcInfos []fnInfoType) (results []reflect.Value) {
+func wrappedFunc(tFn reflect.Type, args []reflect.Value, funcInfos []*fnInfoType) (results []reflect.Value) {
 	var res0 []reflect.Value
 	for i, fnInfo := range funcInfos {
 		args0 := res0
@@ -128,40 +257,6 @@ func fitFnArgs(tFn reflect.Type, dirFn func(int) reflect.Type, toLenArr, fromArr
 	}
 }
 
-func (this *Promise) Then(fulfilledFn, rejectedFn interface{}) (q *Promise) {
-	t1 := reflect.TypeOf(fulfilledFn)
-	t2 := reflect.TypeOf(rejectedFn)
-
-	v1 := reflect.ValueOf(fulfilledFn)
-	v2 := reflect.ValueOf(rejectedFn)
-
-	bValid := ((t1.Kind() == reflect.Func) || (t1.Kind() == reflect.Ptr) && v1.IsNil()) &&
-		((t2.Kind() == reflect.Func) || ((t2.Kind() == reflect.Ptr) && v2.IsNil()))
-	if !bValid {
-		panic("fulfilledFn and rejectedFn should be functions")
-	}
-
-	if !v1.IsNil() {
-		this.initResolvedIfNeeded(t1)
-		this.resolvedFuncs = append(this.resolvedFuncs, fnInfoType{
-			v: v1, t: t1,
-		})
-	}
-
-	if !v2.IsNil() {
-		this.initRejectedIfNeeded(t2)
-		this.rejectedFuncs = append(this.rejectedFuncs, fnInfoType{
-			v: v2, t: t2,
-		})
-	}
-
-	return this
-}
-
-func (this Promise) Wait() {
-	this.wg.Wait()
-}
-
 func getFuncTypeIns(t reflect.Type) (ts []reflect.Type) {
 	for i := 0; i < t.NumIn(); i++ {
 		ts = append(ts, t.In(i))
@@ -176,31 +271,11 @@ func getFuncTypeOuts(t reflect.Type) (ts []reflect.Type) {
 	return
 }
 
-// returns first promise to finish or rejected
-func Race(qs ...*Promise) (q *Promise) {
-	var l sync.Mutex
-	var bDone bool
-	ch := make(chan *Promise)
-
-	fn := func(q1 *Promise) {
-		fncb := func() {
-			l.Lock()
-			if !bDone {
-				bDone = true
-				ch <- q1
-			}
-			l.Unlock()
-		}
-		q1.Then(fncb, fncb)
+func vsToInterface(vs []reflect.Value) (arr []interface{}) {
+	arr = make([]interface{}, len(vs))
+	for i, v := range vs {
+		arr[i] = v
 	}
-
-	for _, q0 := range qs {
-		fn(q0)
-	}
-
-	q = <-ch
-	close(ch)
-	q.Wait()
 
 	return
 }
