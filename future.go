@@ -30,10 +30,10 @@ type Promise struct {
 type FinalState int
 
 const (
-	Unknown FinalState = iota
-	Resolved
-	Rejected
-	Recovered
+	FinalUnknown FinalState = iota
+	FinalResolved
+	FinalRejected
+	FinalRecovered
 )
 
 func Future(fn interface{}) (q *Promise) {
@@ -58,7 +58,7 @@ func FutureDeferred(fn interface{}) (exec func(bAsync bool), q *Promise) {
 	}
 
 	q = &Promise{}
-	q.state = Unknown
+	q.state = FinalUnknown
 	q.finally = defaultFinally
 	q.catch = defaultCatch
 
@@ -82,7 +82,7 @@ func (q *Promise) exec(bAsync bool) {
 	defer func() {
 		o := recover()
 		if nil != o {
-			q.state = Recovered
+			q.state = FinalRecovered
 			q.catch(o)
 		}
 
@@ -200,14 +200,14 @@ func (this *Promise) initRejectedIfNeeded(tRejected reflect.Type) {
 }
 
 func (this *Promise) resolvedWrapped(args []reflect.Value) (results []reflect.Value) {
-	this.state = Resolved
+	this.state = FinalResolved
 	results = wrappedFunc(this.tResolvedWrapper, args, this.resolvedFuncs)
 	this.results = results
 	return
 }
 
 func (this *Promise) rejectedWrapped(args []reflect.Value) (results []reflect.Value) {
-	this.state = Rejected
+	this.state = FinalRejected
 	results = wrappedFunc(this.tRejectedWrapper, args, this.rejectedFuncs)
 	this.results = results
 	return
