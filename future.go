@@ -163,7 +163,7 @@ func Race(qs ...*Promise) (q *Promise) {
 		fncb := func() {
 			l.RLock()
 			defer l.RUnlock()
-			if !bDone {
+			if bDone {
 				return
 			}
 
