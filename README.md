@@ -1,5 +1,11 @@
 Try to run BenchmarkFuture()
 
+# Why?
+
+- if you don't want repeated casting of interface{} to your desired types (in args and results)
+- if you don't want repeated initialization of your channels+goroutines just to make a common pattern
+- if you wanted control back on your desired parameters in your resolv or reject functions (when using a 3rd party lib)
+
 # Content
 
 - func Future( anyfunc(resolvfunc, rejectfunc) ) (*Promise)
@@ -15,37 +21,20 @@ Try to run BenchmarkFuture()
 
 :: resolvedfunc and rejectedfunc can have any function signature
 
-
-# Example
+# Example 
 ```go
-	exec, q :=
-		FutureDeferred(func(
-			resolve func(string, SomeAction) string,
-			rejected func(interface{})) {
-
-			resolve("message 1", SomeAction{})
-
-		})
-
-
-	q.Then(func(msg string, action SomeAction{}) (string, SomeType) {
-		
-		// handle msg and action
-
-		return "message 2", SomeType{}
-		
-	}, func(fail interface{}) {
-
-	}).Then(func(msg string, sometype SomeType) string {
-		
-		// handle msg and sometype
-		return ""
-		
-	}, func(fail interface{}) {
-
+	exec, q := FutureDeferred( func(resolvFn, rejectFn){
+		// ... do something
+		resolvFn("success")
 	})
-
+	
+	q.OnSuccess(fn1, fn2, fn3)
+	q.OnFail(fn1, fn2)
+	
+	q.SetCatch( onRecoverFn )
+	q.SetFinally( onDone )
+	
 	bAsync := false
 	exec(bAsync)
-
 ```
+
