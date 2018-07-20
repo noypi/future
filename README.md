@@ -3,7 +3,7 @@ Try to run BenchmarkFuture()
 # Why?
 
 - if you don't want repeated casting of interface{} to your desired types
-- if you don't want repeated initialization of you channels+goroutines just to make a common pattern
+- if you don't want repeated initialization of your channels+goroutines just to make a common pattern
 - if you wanted control back on your desired parameters in your resolv or reject functions
 
 # Content
