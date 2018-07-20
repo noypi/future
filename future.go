@@ -149,7 +149,7 @@ func (this *Promise) SetFinally(finallyFn func(FinalState, ...interface{})) {
 	this.finally = finallyFn
 }
 
-func (this Promise) Wait() {
+func (this *Promise) Wait() {
 	this.wg.Wait()
 }
 
