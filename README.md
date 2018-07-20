@@ -15,7 +15,7 @@ Try to run BenchmarkFuture()
 
 - if you don't want repeated casting of interface{} to your desired types (in args and results)
 - if you don't want repeated initialization of your channels+goroutines just to make a common pattern
-- if you wanted control back on your desired parameters in your resolv or reject functions (when using a 3rd party lib)
+- if you wanted control back, having your desired parameters in your resolv or reject functions (when using a 3rd party lib)
 
 # Content
 
