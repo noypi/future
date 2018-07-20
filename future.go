@@ -155,18 +155,26 @@ func (this Promise) Wait() {
 
 // returns first promise to finish or rejected
 func Race(qs ...*Promise) (q *Promise) {
-	var l sync.Mutex
+	var l sync.RWMutex
 	var bDone bool
 	ch := make(chan *Promise)
 
 	fn := func(q1 *Promise) {
 		fncb := func() {
+			l.RLock()
+			defer l.RUnlock()
+			if !bDone {
+				return
+			}
+
 			l.Lock()
 			if !bDone {
 				bDone = true
 				ch <- q1
+
 			}
 			l.Unlock()
+
 		}
 		q1.Then(fncb, fncb)
 	}
