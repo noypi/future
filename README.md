@@ -15,6 +15,21 @@ Try to run BenchmarkFuture()
 
 :: resolvedfunc and rejectedfunc can have any function signature
 
+# Example 
+```go
+	q := Future( func(resolvFn, rejectFn){
+		// ... do something
+		resolvFn("success")
+	})
+	
+	q.OnSuccess(fn1, fn2, fn3)
+	q.OnFail(fn1, fn2)
+	
+	q.SetCatch( onRecoverFn )
+	q.SetFinally( onDone )
+	
+	q.Wait()
+```
 
 # Example
 ```go
