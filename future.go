@@ -85,24 +85,31 @@ func (this *Promise) Then(fulfilledFn, rejectedFn interface{}) (q *Promise) {
 
 func (q *Promise) exec(bAsync bool) {
 
-	defer func() {
-		o := recover()
-		if nil != o {
-			q.state = FinalRecovered
-			err := errors.WithStack(errors.New("Promise Recovered"))
-			q.catch(err, o)
-		}
+	// run keeps the settlement (recover, catch, finally) on the goroutine that
+	// executes the promise, so a panic from the executor or a handler is always
+	// recovered by this deferred block instead of escaping.
+	run := func() {
+		defer func() {
+			o := recover()
+			if nil != o {
+				q.state = FinalRecovered
+				err := errors.WithStack(errors.New("Promise Recovered"))
+				q.catch(err, o)
+			}
 
-		q.finally(q.state, vsToInterface(q.results)...)
-	}()
+			q.finally(q.state, vsToInterface(q.results)...)
+		}()
+		q.vFn.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
+	}
+
 	if bAsync {
 		q.wg.Add(1)
 		go func() {
-			q.vFn.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
-			q.wg.Done()
+			defer q.wg.Done()
+			run()
 		}()
 	} else {
-		q.vFn.Call([]reflect.Value{q.vResolvedWrapper, q.vRejectedWrapper})
+		run()
 	}
 
 }
