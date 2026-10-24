@@ -374,8 +374,9 @@ func TestRecovered_ErrorAndValueFailureHandlerPanic(t *testing.T) {
 }
 
 // The async tests below pin the same caller-observable contract for
-// exec(true). Today the panic escapes on the executor goroutine, so these are
-// the expected red (a process crash). They block on q.Wait() and read captured
+// exec(true). They were the expected red before T3 — the panic escaped on the
+// executor goroutine and crashed the process — and are green after recovery
+// moved into the execution closure. They block on q.Wait() and read captured
 // values only after Wait returns (A3); exec(true) is deliberately not wrapped
 // in assert.NotPanics because that cannot observe a panic on another
 // goroutine. The no-escape clause is proven by reaching these assertions.
@@ -471,11 +472,12 @@ func TestRecovered_AsyncErrorAndValueFailureHandlerPanic(t *testing.T) {
 }
 
 // TestRecovered_FutureAsyncPanic covers the Future entry point (A8). Future
-// registers no handler before it executes, so the executor calls a zero-value
-// resolve wrapper and panics in reflect.Call (RULE-FUTURE-004 / Q-FUTURE-008);
-// the default catch (AC-FUTURE-014 observation path) is the only observation
-// channel. Only the recovery log line is asserted: no recovered value and no
-// error-identity claim.
+// registers no handler before it executes, so it runs with zero-value wrappers
+// and reflect.Value.Call panics before the executor body runs; the executor's
+// own sentinel is therefore unreachable and the recovered value is the reflect
+// zero-Value panic (RULE-FUTURE-004 / Q-FUTURE-008), observed through the
+// default catch (AC-FUTURE-014 observation path). Only the recovery log line is
+// asserted: no recovered value and no error-identity claim.
 func TestRecovered_FutureAsyncPanic(t *testing.T) {
 	assert := assertpkg.New(t)
 	logBuf := captureDefaultLogger(t)

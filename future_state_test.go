@@ -214,10 +214,11 @@ func TestRecovered_StateHandlerPanic(t *testing.T) {
 }
 
 // The async tests below pin the same AC-FUTURE-015 state contract for
-// exec(true): the panic escapes on the executor goroutine today, so these
-// tests are the expected red (a process crash) until the recovery runs inside
-// the execution path. They block on q.Wait() and read captured values only
-// after Wait returns (A3). No sleeps, timers, polling, or t.Parallel().
+// exec(true). They were the expected red before T3 — the panic escaped on the
+// executor goroutine and crashed the process — and are green after recovery
+// moved into the execution closure, where it runs on that same goroutine. They
+// block on q.Wait() and read captured values only after Wait returns (A3). No
+// sleeps, timers, polling, or t.Parallel().
 
 // TestRecovered_AsyncStateExecutorPanic asserts that an executor panic on the
 // asynchronous path is recovered and observed as FinalRecovered inside the
