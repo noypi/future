@@ -2,6 +2,7 @@ package future_test
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	. "github.com/noypi/future"
+	pkgerrors "github.com/pkg/errors"
 	assertpkg "github.com/stretchr/testify/assert"
 )
 
@@ -257,6 +259,233 @@ func TestFuture_SetFinallyReplacesDefault(t *testing.T) {
 	assert.NotPanics(func() { exec(false) }, "exec(false) must not let the executor panic escape")
 
 	assert.True(called, "the installed finally callback must run at completion")
+}
+
+// assertRecoveredError pins the AC-FUTURE-015 error contract: the recovery
+// callback receives exactly errors.WithStack(errors.New("Promise Recovered")),
+// so the message is exact, a wrapper is present, and the formatted error
+// carries a stack frame from future.go.
+func assertRecoveredError(t *testing.T, assert *assertpkg.Assertions, gotErr error) {
+	t.Helper()
+
+	if !assert.NotNil(gotErr, "the recovery callback must receive an error") {
+		return
+	}
+	assert.Equal("Promise Recovered", gotErr.Error(), "the recovered error message must be exact")
+
+	cause := pkgerrors.Cause(gotErr)
+	assert.False(cause == gotErr, "the recovered error must be wrapped with errors.WithStack")
+	assert.Equal("Promise Recovered", cause.Error(), "the root cause must be the Promise Recovered error")
+	assert.Contains(fmt.Sprintf("%+v", gotErr), "future.go", "the recovered error must carry a stack frame from future.go")
+}
+
+// The tests below pin the caller-observable half of AC-FUTURE-015 (parent
+// FR-FUTURE-010): the panic does not reach the caller, the recovery callback
+// installed with SetCatch (AC-FUTURE-014 observation path, API-FUTURE-006)
+// runs exactly once with the wrapped error and the recovered value, and a
+// success or failure handler panic (Q-FUTURE-006) takes the same path. Both
+// handlers are registered before exec (RULE-FUTURE-004 / Q-FUTURE-008).
+
+// TestRecovered_ErrorAndValueExecutorPanic asserts the synchronous path's
+// error and value contract when the executor panics.
+func TestRecovered_ErrorAndValueExecutorPanic(t *testing.T) {
+	assert := assertpkg.New(t)
+
+	const sentinel = "boom-exec-sync"
+
+	exec, q := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {
+		panic(sentinel)
+	})
+
+	q.Then(func(s string) string { return s }, func(o interface{}) {})
+
+	var calls int
+	var gotErr error
+	var gotVal interface{}
+	q.SetCatch(func(err error, o interface{}) {
+		calls++
+		gotErr = err
+		gotVal = o
+	})
+
+	assert.NotPanics(func() { exec(false) }, "exec(false) must recover the executor panic")
+
+	assert.Equal(1, calls, "the installed catch callback must run exactly once")
+	assert.Equal(sentinel, gotVal, "the catch callback must receive the recovered sentinel value")
+	assertRecoveredError(t, assert, gotErr)
+}
+
+// TestRecovered_ErrorAndValueSuccessHandlerPanic asserts the synchronous
+// path's error and value contract when a success handler panics.
+func TestRecovered_ErrorAndValueSuccessHandlerPanic(t *testing.T) {
+	assert := assertpkg.New(t)
+
+	const sentinel = "boom-handler-success-sync"
+
+	exec, q := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {
+		resolve("ignored")
+	})
+
+	q.Then(func(s string) string { panic(sentinel) }, func(o interface{}) {})
+
+	var calls int
+	var gotErr error
+	var gotVal interface{}
+	q.SetCatch(func(err error, o interface{}) {
+		calls++
+		gotErr = err
+		gotVal = o
+	})
+
+	assert.NotPanics(func() { exec(false) }, "exec(false) must recover the success-handler panic")
+
+	assert.Equal(1, calls, "the installed catch callback must run exactly once")
+	assert.Equal(sentinel, gotVal, "the catch callback must receive the recovered sentinel value")
+	assertRecoveredError(t, assert, gotErr)
+}
+
+// TestRecovered_ErrorAndValueFailureHandlerPanic asserts the synchronous
+// path's error and value contract when a failure handler panics.
+func TestRecovered_ErrorAndValueFailureHandlerPanic(t *testing.T) {
+	assert := assertpkg.New(t)
+
+	const sentinel = "boom-handler-failure-sync"
+
+	exec, q := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {
+		reject("ignored")
+	})
+
+	q.Then(func(s string) string { return s }, func(o interface{}) { panic(sentinel) })
+
+	var calls int
+	var gotErr error
+	var gotVal interface{}
+	q.SetCatch(func(err error, o interface{}) {
+		calls++
+		gotErr = err
+		gotVal = o
+	})
+
+	assert.NotPanics(func() { exec(false) }, "exec(false) must recover the failure-handler panic")
+
+	assert.Equal(1, calls, "the installed catch callback must run exactly once")
+	assert.Equal(sentinel, gotVal, "the catch callback must receive the recovered sentinel value")
+	assertRecoveredError(t, assert, gotErr)
+}
+
+// The async tests below pin the same caller-observable contract for
+// exec(true). Today the panic escapes on the executor goroutine, so these are
+// the expected red (a process crash). They block on q.Wait() and read captured
+// values only after Wait returns (A3); exec(true) is deliberately not wrapped
+// in assert.NotPanics because that cannot observe a panic on another
+// goroutine. The no-escape clause is proven by reaching these assertions.
+
+// TestRecovered_AsyncErrorAndValueExecutorPanic asserts the asynchronous
+// path's error and value contract when the executor panics.
+func TestRecovered_AsyncErrorAndValueExecutorPanic(t *testing.T) {
+	assert := assertpkg.New(t)
+
+	const sentinel = "boom-exec-async"
+
+	exec, q := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {
+		panic(sentinel)
+	})
+
+	q.Then(func(s string) string { return s }, func(o interface{}) {})
+
+	var calls int
+	var gotErr error
+	var gotVal interface{}
+	q.SetCatch(func(err error, o interface{}) {
+		calls++
+		gotErr = err
+		gotVal = o
+	})
+
+	exec(true)
+	q.Wait()
+
+	assert.Equal(1, calls, "the installed catch callback must run exactly once")
+	assert.Equal(sentinel, gotVal, "the catch callback must receive the recovered sentinel value")
+	assertRecoveredError(t, assert, gotErr)
+}
+
+// TestRecovered_AsyncErrorAndValueSuccessHandlerPanic asserts the asynchronous
+// path's error and value contract when a success handler panics.
+func TestRecovered_AsyncErrorAndValueSuccessHandlerPanic(t *testing.T) {
+	assert := assertpkg.New(t)
+
+	const sentinel = "boom-handler-success-async"
+
+	exec, q := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {
+		resolve("ignored")
+	})
+
+	q.Then(func(s string) string { panic(sentinel) }, func(o interface{}) {})
+
+	var calls int
+	var gotErr error
+	var gotVal interface{}
+	q.SetCatch(func(err error, o interface{}) {
+		calls++
+		gotErr = err
+		gotVal = o
+	})
+
+	exec(true)
+	q.Wait()
+
+	assert.Equal(1, calls, "the installed catch callback must run exactly once")
+	assert.Equal(sentinel, gotVal, "the catch callback must receive the recovered sentinel value")
+	assertRecoveredError(t, assert, gotErr)
+}
+
+// TestRecovered_AsyncErrorAndValueFailureHandlerPanic asserts the asynchronous
+// path's error and value contract when a failure handler panics.
+func TestRecovered_AsyncErrorAndValueFailureHandlerPanic(t *testing.T) {
+	assert := assertpkg.New(t)
+
+	const sentinel = "boom-handler-failure-async"
+
+	exec, q := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {
+		reject("ignored")
+	})
+
+	q.Then(func(s string) string { return s }, func(o interface{}) { panic(sentinel) })
+
+	var calls int
+	var gotErr error
+	var gotVal interface{}
+	q.SetCatch(func(err error, o interface{}) {
+		calls++
+		gotErr = err
+		gotVal = o
+	})
+
+	exec(true)
+	q.Wait()
+
+	assert.Equal(1, calls, "the installed catch callback must run exactly once")
+	assert.Equal(sentinel, gotVal, "the catch callback must receive the recovered sentinel value")
+	assertRecoveredError(t, assert, gotErr)
+}
+
+// TestRecovered_FutureAsyncPanic covers the Future entry point (A8). Future
+// registers no handler before it executes, so the executor calls a zero-value
+// resolve wrapper and panics in reflect.Call (RULE-FUTURE-004 / Q-FUTURE-008);
+// the default catch (AC-FUTURE-014 observation path) is the only observation
+// channel. Only the recovery log line is asserted: no recovered value and no
+// error-identity claim.
+func TestRecovered_FutureAsyncPanic(t *testing.T) {
+	assert := assertpkg.New(t)
+	logBuf := captureDefaultLogger(t)
+
+	q := Future(func(resolve func(string) string, reject func(interface{})) {
+		panic("boom-future-async")
+	})
+	q.Wait()
+
+	assert.Contains(logBuf.String(), "Promise Recovered", "the default catch must log the recovery error text")
 }
 
 func BenchmarkFuture(b *testing.B) {
