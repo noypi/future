@@ -52,6 +52,13 @@ func TestRace_ResolvesFirstToSettle(t *testing.T) {
 	exec1, q1 := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {
 		time.Sleep(100 * time.Millisecond)
 		resolve("winner")
+		// Post-settlement gate. The send on Race's buffered channel only makes
+		// the Race goroutine runnable; the executor keeps running and would set
+		// the flag before the receiver is scheduled. Holding the flag back for
+		// 100 ms after resolve means it can only be true once Race has waited
+		// for this executor to finish, so a Race that returns without Wait()
+		// observes false here and fails.
+		time.Sleep(100 * time.Millisecond)
 		winnerFinished.Store(true)
 	})
 	primeTypedHandlers(q1)
