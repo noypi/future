@@ -1,7 +1,9 @@
 package future_test
 
 import (
+	"bytes"
 	"log"
+	"strings"
 	"testing"
 
 	. "github.com/noypi/future"
@@ -141,6 +143,118 @@ func TestFuture_rejectedFuncSignatures(t *testing.T) {
 	assert.Equal("", results[6])
 	assert.Equal(0, results[7])
 	assert.Equal(0, results[8])
+}
+
+// captureDefaultLogger redirects the standard library logger to a buffer for the
+// duration of the test, with empty flags and prefix, and restores the previous
+// output, flags, and prefix when the test finishes.
+func captureDefaultLogger(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	prevWriter := log.Writer()
+	prevFlags := log.Flags()
+	prevPrefix := log.Prefix()
+
+	buf := &bytes.Buffer{}
+	log.SetOutput(buf)
+	log.SetFlags(0)
+	log.SetPrefix("")
+
+	t.Cleanup(func() {
+		log.SetOutput(prevWriter)
+		log.SetFlags(prevFlags)
+		log.SetPrefix(prevPrefix)
+	})
+
+	return buf
+}
+
+// AC-FUTURE-014: by default catch logs the formatted recovery error, " => ", and
+// the recovered value through log.Println.
+func TestFuture_DefaultCatchLogsRecoveredValue(t *testing.T) {
+	assert := assertpkg.New(t)
+	logBuf := captureDefaultLogger(t)
+
+	const sentinel = "boom-default-catch"
+	exec, q := FutureDeferred(func(resolve func(string) string, rejected func(interface{})) {
+		panic(sentinel)
+	})
+
+	// Both the resolve and the reject wrapper must exist before exec builds its
+	// call arguments. Registering handlers is setup only: the executor panics
+	// before either handler can run.
+	q.Then(func(s string) string { return s }, func(o interface{}) {})
+
+	assert.NotPanics(func() { exec(false) }, "exec(false) must not let the executor panic escape")
+
+	out := logBuf.String()
+	assert.Contains(out, "Promise Recovered", "the default catch must log the recovery error text")
+	assert.Contains(out, "=>", "the default catch must log the separation between the error and the value")
+
+	errIdx := strings.Index(out, "Promise Recovered")
+	arrowIdx := strings.Index(out, "=>")
+	valIdx := strings.Index(out, sentinel)
+
+	assert.GreaterOrEqual(errIdx, 0)
+	assert.GreaterOrEqual(arrowIdx, 0)
+	assert.GreaterOrEqual(valIdx, 0)
+	assert.Less(errIdx, arrowIdx, "the error text must be logged before the \"=>\" separator")
+	assert.Less(arrowIdx, valIdx, "the recovered value must be logged after the \"=>\" separator")
+}
+
+// AC-FUTURE-014: SetCatch replaces the recovery callback, so the default
+// logging callback no longer runs.
+func TestFuture_SetCatchReplacesDefault(t *testing.T) {
+	assert := assertpkg.New(t)
+	logBuf := captureDefaultLogger(t)
+
+	const sentinel = "boom-setcatch"
+	exec, q := FutureDeferred(func(resolve func(string) string, rejected func(interface{})) {
+		panic(sentinel)
+	})
+
+	// Both wrappers must exist before exec builds its call arguments; the
+	// executor panics before either handler can run.
+	q.Then(func(s string) string { return s }, func(o interface{}) {})
+
+	var calls int
+	var gotErr error
+	var gotVal interface{}
+	q.SetCatch(func(err error, o interface{}) {
+		calls++
+		gotErr = err
+		gotVal = o
+	})
+
+	assert.NotPanics(func() { exec(false) }, "exec(false) must not let the executor panic escape")
+
+	assert.Equal(1, calls, "the installed catch callback must run for the recovered panic")
+	assert.NotNil(gotErr, "the installed catch callback must receive the recovery error")
+	assert.Equal(sentinel, gotVal, "the installed catch callback must receive the recovered value")
+	assert.NotContains(logBuf.String(), "Promise Recovered", "SetCatch must replace the default logging callback")
+}
+
+// AC-FUTURE-014: SetFinally replaces the completion callback.
+func TestFuture_SetFinallyReplacesDefault(t *testing.T) {
+	assert := assertpkg.New(t)
+
+	exec, q := FutureDeferred(func(resolve func(string) string, rejected func(interface{})) {
+		resolve("value")
+	})
+
+	// RULE-FUTURE-004: the resolve wrapper only exists once a success handler
+	// has been registered before the executor settles. The reject wrapper is
+	// also required because exec passes both wrappers to reflect.Call.
+	q.Then(func(s string) string { return s }, func(o interface{}) {})
+
+	called := false
+	q.SetFinally(func(st FinalState, args ...interface{}) {
+		called = true
+	})
+
+	assert.NotPanics(func() { exec(false) }, "exec(false) must not let the executor panic escape")
+
+	assert.True(called, "the installed finally callback must run at completion")
 }
 
 func BenchmarkFuture(b *testing.B) {
