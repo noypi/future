@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"log"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	. "github.com/noypi/future"
 	assertpkg "github.com/stretchr/testify/assert"
@@ -270,5 +272,103 @@ func BenchmarkFuture(b *testing.B) {
 		})
 
 		exec(false)
+	}
+}
+
+// waitBlockWindow is the negative window during which Wait must not return
+// while the async executor goroutine is still blocked. It is a scheduling aid,
+// not a latency contract.
+const waitBlockWindow = 100 * time.Millisecond
+
+// waitReturnTimeout is the liveness bound for Wait returning once the executor
+// is released or when no goroutine was started. It is a scheduling aid, not a
+// latency contract.
+const waitReturnTimeout = 3 * time.Second
+
+// AC-FUTURE-017: after exec(true), Wait returns only once the executor goroutine
+// has returned.
+func TestFuture_WaitBlocksForAsyncExec(t *testing.T) {
+	release := make(chan struct{})
+	executorReturned := make(chan struct{})
+
+	exec, q := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {
+		<-release
+		close(executorReturned)
+	})
+
+	// RULE-FUTURE-004 / Q-FUTURE-008: both wrapper values must be non-zero before
+	// exec because exec passes both to reflect.Call. Registering handlers is setup
+	// only; the executor is released without settling.
+	q.Then(func(s string) string { return s }, func(o interface{}) {})
+
+	// A failed assertion must not leave the executor goroutine blocked, so the
+	// channel close is idempotent and runs at cleanup as well as in the test body.
+	var releaseOnce sync.Once
+	releaseFn := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	t.Cleanup(releaseFn)
+
+	exec(true)
+
+	// Do not wait for the executor to start: calling Wait immediately after
+	// exec(true) returns is exactly the ordering AC-FUTURE-017 promises.
+	waiterReady := make(chan struct{})
+	waitReturned := make(chan struct{})
+	go func() {
+		close(waiterReady)
+		q.Wait()
+		close(waitReturned)
+	}()
+	<-waiterReady
+
+	// Negative window: the executor is still blocked on release, so a Wait that
+	// returns now does not block for asynchronous execution.
+	select {
+	case <-waitReturned:
+		t.Fatal("Wait returned before the executor was released")
+	case <-time.After(waitBlockWindow):
+	}
+
+	releaseFn()
+
+	select {
+	case <-waitReturned:
+	case <-time.After(waitReturnTimeout):
+		t.Fatal("Wait did not return after the executor returned")
+	}
+
+	// Ordering: executorReturned must already be closed, because Wait can only
+	// return after the executor's final statement closed it.
+	select {
+	case <-executorReturned:
+	default:
+		t.Fatal("Wait returned before the executor goroutine's final statement ran")
+	}
+}
+
+// AC-FUTURE-017: after exec(false) no goroutine was started, so Wait returns
+// immediately instead of blocking.
+func TestFuture_WaitReturnsAfterSyncExec(t *testing.T) {
+	exec, q := FutureDeferred(func(resolve func(string) string, reject func(interface{})) {})
+
+	// RULE-FUTURE-004 / Q-FUTURE-008: both wrapper values must be non-zero before
+	// exec because exec passes both to reflect.Call. The executor never settles.
+	q.Then(func(s string) string { return s }, func(o interface{}) {})
+
+	exec(false)
+
+	waitReturned := make(chan struct{})
+	go func() {
+		q.Wait()
+		close(waitReturned)
+	}()
+
+	select {
+	case <-waitReturned:
+	case <-time.After(waitReturnTimeout):
+		t.Fatal("Wait blocked after exec(false); no goroutine was started")
 	}
 }
