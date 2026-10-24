@@ -155,36 +155,22 @@ func (this *Promise) Wait() {
 
 // returns first promise to finish or rejected
 func Race(qs ...*Promise) (q *Promise) {
-	var l sync.RWMutex
-	var bDone bool
-	ch := make(chan *Promise)
+	// buffered so the winning callback never blocks; Once keeps later
+	// settlements from sending a second value.
+	ch := make(chan *Promise, 1)
+	var once sync.Once
 
-	fn := func(q1 *Promise) {
+	for _, q0 := range qs {
+		q1 := q0
 		fncb := func() {
-			l.RLock()
-			defer l.RUnlock()
-			if bDone {
-				return
-			}
-
-			l.Lock()
-			if !bDone {
-				bDone = true
+			once.Do(func() {
 				ch <- q1
-
-			}
-			l.Unlock()
-
+			})
 		}
 		q1.Then(fncb, fncb)
 	}
 
-	for _, q0 := range qs {
-		fn(q0)
-	}
-
 	q = <-ch
-	close(ch)
 	q.Wait()
 
 	return
