@@ -26,6 +26,7 @@ type Promise struct {
 	rejectedFuncs []*fnInfoType
 
 	state   FinalState
+	err     error
 	results []reflect.Value
 	catch   func(err error, o interface{})
 	finally func(FinalState, ...interface{})
@@ -94,6 +95,7 @@ func (q *Promise) exec(bAsync bool) {
 			if nil != o {
 				q.state = FinalRecovered
 				err := errors.WithStack(errors.New("Promise Recovered"))
+				q.err = err
 				q.catch(err, o)
 			}
 
@@ -154,6 +156,15 @@ func (this *Promise) SetCatch(recoverFn func(error, interface{})) {
 
 func (this *Promise) SetFinally(finallyFn func(FinalState, ...interface{})) {
 	this.finally = finallyFn
+}
+
+func (q *Promise) Err() error {
+	// Gate on FinalRecovered so a retained error never outlives a later
+	// settlement (RULE-FUTURE-003).
+	if q.state != FinalRecovered {
+		return nil
+	}
+	return q.err
 }
 
 func (this *Promise) Wait() {
