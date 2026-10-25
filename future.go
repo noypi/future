@@ -167,6 +167,23 @@ func (q *Promise) Err() error {
 	return q.err
 }
 
+// Results returns a fresh slice of the values recorded by the settle pipeline.
+// It is nil while no pipeline has recorded results; a settled promise that
+// recorded none returns a non-nil empty slice. Mutating the returned slice
+// never changes the promise.
+func (q *Promise) Results() []interface{} {
+	if q.results == nil {
+		return nil
+	}
+
+	arr := make([]interface{}, len(q.results))
+	for i, v := range q.results {
+		arr[i] = v.Interface()
+	}
+
+	return arr
+}
+
 func (this *Promise) Wait() {
 	this.wg.Wait()
 }
