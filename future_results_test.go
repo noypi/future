@@ -202,6 +202,32 @@ func TestOutcome_Results(t *testing.T) {
 			},
 			want: []interface{}{"out:value"},
 		},
+		{
+			// (h) A success handler may return more than one value; every
+			// recorded value is exposed, in recorded order, with the length
+			// preserved. The two values differ, so returning only the first
+			// value or reversing the order fails this row.
+			name: "resolve records every value from a multi-value handler in recorded order",
+			prepare: func(t *testing.T) (*Promise, resultsObs) {
+				t.Helper()
+				exec, q := FutureDeferred(func(resolve func(string) (string, string), reject func(string) string) {
+					resolve("value")
+				})
+				q.Then(func(s string) (string, string) { return s, "out:" + s }, func(reason string) string { return reason })
+				exec(false)
+				return q, resultsObs{}
+			},
+			want: []interface{}{"value", "out:value"},
+			verify: func(t *testing.T, assert *assertpkg.Assertions, q *Promise, got []interface{}, obs resultsObs) {
+				t.Helper()
+				if !assert.Len(got, 2, "Results() must expose both recorded values") {
+					return
+				}
+				assert.IsType("", got[0], "the first recorded value must be a concrete value, not a reflect.Value wrapper")
+				assert.IsType("", got[1], "the second recorded value must be a concrete value, not a reflect.Value wrapper")
+				assert.NotEqual(got[0], got[1], "the recorded values must differ so the recorded-order assertion is meaningful")
+			},
+		},
 	}
 
 	for _, tt := range tests {
